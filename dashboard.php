@@ -85,7 +85,7 @@ $admin = $_SESSION['admin'];
                 </div>
                 <div class="sidebar-item px-4 py-3 rounded-lg flex items-center space-x-3 cursor-pointer">
                     <i class="fas fa-users w-5"></i>
-                    <span>Accounts</span>
+                    <a href="verified_users.php" style="text-decoration: none;">Accounts</a>
                 </div>
                 <div class="sidebar-item px-4 py-3 rounded-lg flex items-center space-x-3 cursor-pointer">
                     <i class="fas fa-cog w-5"></i>

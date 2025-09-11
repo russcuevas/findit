@@ -105,7 +105,7 @@ if (isset($data['documents'])) {
             <br>
             <!-- Navigation Menu -->
             <nav class="space-y-2">
-                <div class="sidebar-item px-4 py-3 rounded-lg flex items-center space-x-3">
+                <div class="sidebar-item px-4 py-3 rounded-lg  flex items-center space-x-3">
                     <i class="fas fa-tachometer-alt w-5"></i>
                     <a href="dashboard.php" style="text-decoration: none;">Dashboard</a>
                     <div class="ml-auto bg-red-500 text-xs px-2 py-1 rounded-full">10</div>
@@ -123,9 +123,9 @@ if (isset($data['documents'])) {
                     <i class="fas fa-shopping-cart w-5"></i>
                     <a href="merit_shop.php" style="text-decoration: none;">Merit Shop</a>
                 </div>
-                <div class="sidebar-item px-4 py-3 rounded-lg flex items-center space-x-3 cursor-pointer">
+                <div class="sidebar-item px-4 py-3 rounded-lg  flex items-center space-x-3 cursor-pointer">
                     <i class="fas fa-users w-5"></i>
-                    <span>Accounts</span>
+                    <a href="verified_users.php" style="text-decoration: none;">Accounts</a>
                 </div>
                 <div class="sidebar-item px-4 py-3 rounded-lg flex items-center space-x-3 cursor-pointer">
                     <i class="fas fa-cog w-5"></i>
