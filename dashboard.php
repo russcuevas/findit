@@ -89,7 +89,7 @@ $admin = $_SESSION['admin'];
                 </div>
                 <div class="sidebar-item px-4 py-3 rounded-lg flex items-center space-x-3 cursor-pointer">
                     <i class="fas fa-cog w-5"></i>
-                    <span>Settings</span>
+                    <a href="settings.php" style="text-decoration: none;">Settings</a>
                 </div>
                 <div class="sidebar-item px-4 py-3 rounded-lg flex items-center space-x-3 cursor-pointer">
                     <i class="fa-solid fa-right-from-bracket"></i>                    
