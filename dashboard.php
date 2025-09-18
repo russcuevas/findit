@@ -1,12 +1,62 @@
 <?php
 session_start();
 
+// 🔒 Admin authentication check
 if (!isset($_SESSION['admin'])) {
     header("Location: login.php");
     exit;
 }
 
 $admin = $_SESSION['admin'];
+
+// 🔑 Firebase Config
+$projectId = 'findit-96080';
+$apiKey = 'AIzaSyBnRceOZZNPF-qR65gKadBGwlYEADrqi_g';
+
+// 🔄 Fetch Items from Firestore
+function fetchItems($projectId, $apiKey) {
+    $url = "https://firestore.googleapis.com/v1/projects/$projectId/databases/(default)/documents/items?key=$apiKey";
+    $ch = curl_init($url);
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+    curl_setopt($ch, CURLOPT_HTTPHEADER, ['Content-Type: application/json']);
+    $response = curl_exec($ch);
+    curl_close($ch);
+
+    $data = json_decode($response, true);
+    return $data['documents'] ?? [];
+}
+
+// 📊 Count by Month
+function countByMonth($documents) {
+    // Initialize counters
+    $foundByMonth = array_fill(1, 12, 0);
+    $lostByMonth = array_fill(1, 12, 0);
+
+    foreach ($documents as $doc) {
+        $fields = $doc['fields'] ?? [];
+        $type = $fields['type']['stringValue'] ?? '';
+        $status = $fields['status']['stringValue'] ?? '';
+        $createdAt = $fields['createdAt']['timestampValue'] ?? '';
+
+        if ($status !== 'approved' || !in_array($type, ['found', 'lost']) || !$createdAt) continue;
+
+        // Parse month from createdAt
+        $timestamp = strtotime($createdAt);
+        $month = (int) date('n', $timestamp); // 1 = Jan, 12 = Dec
+
+        if ($type === 'found') {
+            $foundByMonth[$month]++;
+        } else {
+            $lostByMonth[$month]++;
+        }
+    }
+
+    return [$foundByMonth, $lostByMonth];
+}
+
+// 🔃 Get data
+$documents = fetchItems($projectId, $apiKey);
+[$foundByMonth, $lostByMonth] = countByMonth($documents);
 ?>
 
 <!DOCTYPE html>
@@ -72,7 +122,7 @@ $admin = $_SESSION['admin'];
                 </div>
                 <div class="sidebar-item px-4 py-3 rounded-lg flex items-center space-x-3 cursor-pointer">
                     <i class="fas fa-paper-plane w-5"></i>
-                    <span>Request</span>
+                    <a href="claimant_approval.php" style="text-decoration: none;">Request</a>
                     <div class="ml-auto bg-orange-500 text-xs px-2 py-1 rounded-full">5</div>
                 </div>
                 <div class="sidebar-item px-4 py-3 rounded-lg flex items-center space-x-3 cursor-pointer">
@@ -100,55 +150,68 @@ $admin = $_SESSION['admin'];
 
         <!-- Main Content -->
         <div class="flex-1 p-6 overflow-y-auto">
-            <!-- Header Section -->
-            <div class="flex justify-between items-start mb-8">
-                <div class="text-4xl font-bold text-white">Dashboard</div>
-                <div class="flex items-center space-x-6">
-                    <!-- Time and Date -->
-                    <div class="text-right">
-                        <div class="text-2xl font-bold">8:45pm</div>
-                        <div class="text-sm text-gray-400">April 1, 2025</div>
+            <div class="flex flex-wrap gap-4 items-start text-white">
+    <!-- Time + Calendar Panel -->
+        <div style="padding: 20px; background-color: #13212B; margin-bottom: 10px; height: 21.5vh;" class="w-full max-w-sm">
+            <div class="flex items-center justify-between h-full space-x-4">
+                
+                <!-- Time and Date Box -->
+                <div class="flex-1 p-3  transition-colors text-white leading-tight">
+                    <div class="font-semibold text-3xl sm:text-4xl md:text-5xl">8:45pm</div>
+                    <div class="text-gray-400 text-base sm:text-lg md:text-xl">April 1, 2025</div>
+                </div>
+
+                <!-- Calendar Icon with Notification -->
+                <div class="relative">
+                    <button class="bg-gray-800 p-5 rounded-md hover:bg-gray-700 transition-colors">
+                        <i style="font-size: 50px;" class="fas fa-calendar text-white text-xl"></i>
+                    </button>
+                    <span class="absolute -top-1 -right-1 w-4 h-4 bg-red-500 text-[10px] text-white rounded-full flex items-center justify-center">1</span>
+                </div>
+                
+            </div>
+        </div>
+
+
+    <!-- Notifications Panel -->
+                <div class="flex-1 min-w-[250px] bg-gray-800 rounded-xl p-4 border border-gray-700 space-y-3" style="background-color: #13212B !important;">
+                    <!-- Notification Item -->
+                    <div class="flex items-center justify-between p-3 bg-gray-700 rounded-lg">
+                        <span>
+                            <strong class="text-blue-400">Junjun Dela Cruz</strong> is requesting to approve the post in <strong class="text-green-400">cellphone</strong> listing.
+                        </span>
+                        <span class="text-xs text-gray-400 whitespace-nowrap">09:45 Pm</span>
                     </div>
-                    <!-- Notification -->
-                    <div class="relative">
-                        <button class="bg-gray-800 p-3 rounded-lg hover:bg-gray-700 transition-colors">
-                            <i class="fas fa-calendar text-white text-xl"></i>
-                        </button>
-                        <span class="notification-dot absolute -top-1 -right-1 w-4 h-4 bg-red-500 text-xs text-white rounded-full flex items-center justify-center">1</span>
+
+                    <div class="flex items-center justify-between p-3 bg-gray-700 rounded-lg">
+                        <span>
+                            <strong class="text-blue-400">Naja Chu Evangelista</strong> is claiming the cellphone mentioned in Junjun Dela Cruz's <strong class="text-yellow-400">post</strong>
+                        </span>
+                        <span class="text-xs text-gray-400 whitespace-nowrap">09:45 Pm</span>
+                    </div>
+
+                    <div class="flex items-center justify-between p-3 bg-gray-700 rounded-lg">
+                        <span>
+                            <strong class="text-blue-400">Marivic De Guzman</strong> surrendered a <strong class="text-green-400">wallet</strong> to authorities in Brgy. Concepcion.
+                        </span>
+                        <span class="text-xs text-gray-400 whitespace-nowrap">09:45 Pm</span>
                     </div>
                 </div>
             </div>
 
-            <!-- Top Notifications Panel -->
-            <div class="bg-gray-800 rounded-xl p-4 mb-6 border border-gray-700">
-                <div class="space-y-3 text-sm">
-                    <div class="flex items-center justify-between p-3 bg-gray-700 rounded-lg">
-                        <span><strong class="text-blue-400">Junjun Dela Cruz</strong> is requesting to approve the post in <strong class="text-green-400">cellphone</strong> listing.</span>
-                        <span class="text-xs text-gray-400">09:45 Pm</span>
-                    </div>
-                    <div class="flex items-center justify-between p-3 bg-gray-700 rounded-lg">
-                        <span><strong class="text-blue-400">Naja Chu Evangelista</strong> is claiming the cellphone mentioned in Junjun Dela Cruz's <strong class="text-yellow-400">post</strong></span>
-                        <span class="text-xs text-gray-400">09:45 Pm</span>
-                    </div>
-                    <div class="flex items-center justify-between p-3 bg-gray-700 rounded-lg">
-                        <span><strong class="text-blue-400">Marivic De Guzman</strong> surrendered a <strong class="text-green-400">wallet</strong> to authorities in Brgy. Concepcion.</span>
-                        <span class="text-xs text-gray-400">09:45 Pm</span>
-                    </div>
-                </div>
-            </div>
 
             <div class="grid grid-cols-12 gap-6">
                 <!-- Statistics Chart -->
-                <div class="col-span-8 p-6">
-                    <div class="flex justify-between items-center mb-6">
-                        <h2 class="text-xl font-semibold">Statistics</h2>
-                        <div class="flex space-x-2">
-                            <button class="bg-green-500 hover:bg-green-600 px-4 py-2 rounded-lg text-sm font-medium transition-colors">Found</button>
-                            <button class="bg-yellow-500 hover:bg-yellow-600 px-4 py-2 rounded-lg text-sm font-medium transition-colors">Lost</button>
-                        </div>
+            <div class="col-span-8 p-6">
+                <div class="flex justify-between items-center mb-6">
+                    <h2 class="text-xl font-semibold p-4 rounded-xl" style="background-color: #13212B;">Statistics</h2>
+                    <div class="flex space-x-2">
+                        <button class="bg-green-500 hover:bg-green-600 px-4 py-2 rounded-lg text-sm font-medium transition-colors">Found</button>
+                        <button class="bg-yellow-500 hover:bg-yellow-600 px-4 py-2 rounded-lg text-sm font-medium transition-colors">Lost</button>
                     </div>
-                    <canvas id="statisticsChart" class="w-full h-64"></canvas>
                 </div>
+                <canvas id="statisticsChart" class="w-full h-64"></canvas>
+            </div>
 
                 <!-- Right Side Panels -->
                 <div class="col-span-4 space-y-6">
@@ -206,47 +269,49 @@ $admin = $_SESSION['admin'];
 
                     <!-- Activity Summary with Stats -->
                     <div class="space-y-4">
-                        <div class="flex items-center justify-between">
-                            <h3 class="bg-gray-700 text-lg font-semibold" style="padding: 10px;">Activity Summary</h3>
-                            <div class="flex space-x-2 text-xs">
-                                <p>Filter</p>
-                                <button class="bg-gray-700 px-2 py-1 rounded">Week</button>
-                                <button class=" px-2 py-1 rounded">Month</button>
-                                <button class=" px-2 py-1 rounded">Year</button>
-                            </div>
-                        </div>
-                        
-                        <!-- Stat Cards -->
-                        <div class="grid grid-cols-1 gap-3">
-                            <div class="stat-card bg-red-600 rounded-lg p-4 relative overflow-hidden">
-                                <div class="text-right">
-                                    <div class="text-3xl font-bold">23</div>
-                                    <div class="text-xs opacity-90">Item Reported Lost</div>
+                        <form action="">
+                            <div class="flex items-center justify-between">
+                                <h3 class="text-lg font-semibold p-4 rounded-xl" style="background-color: #13212B;">Activity Summary</h3>
+                                <div class="flex space-x-2 text-xs">
+                                    <p>Filter</p>
+                                    <button class="bg-gray-700 px-2 py-1 rounded">Week</button>
+                                    <button class=" px-2 py-1 rounded">Month</button>
+                                    <button class=" px-2 py-1 rounded">Year</button>
                                 </div>
-                                <i class="fas fa-arrow-up absolute top-2 right-2 text-xs opacity-70"></i>
                             </div>
-                            <div class="stat-card bg-green-600 rounded-lg p-4 relative overflow-hidden">
-                                <div class="text-right">
-                                    <div class="text-3xl font-bold">18</div>
-                                    <div class="text-xs opacity-90">Item Reported Found</div>
+                            <br>
+                            <!-- Stat Cards -->
+                            <div class="grid grid-cols-1 gap-3">
+                                <div class="stat-card bg-red-600 rounded-lg p-4 relative overflow-hidden">
+                                    <div class="text-right">
+                                        <div class="text-3xl font-bold">23</div>
+                                        <div class="text-xs opacity-90">Item Reported Lost</div>
+                                    </div>
+                                    <i class="fas fa-arrow-up absolute top-2 right-2 text-xs opacity-70"></i>
                                 </div>
-                                <i class="fas fa-arrow-up absolute top-2 right-2 text-xs opacity-70"></i>
-                            </div>
-                            <div class="stat-card bg-blue-600 rounded-lg p-4 relative overflow-hidden">
-                                <div class="text-right">
-                                    <div class="text-3xl font-bold">3</div>
-                                    <div class="text-xs opacity-90">Item Returned</div>
+                                <div class="stat-card bg-green-600 rounded-lg p-4 relative overflow-hidden">
+                                    <div class="text-right">
+                                        <div class="text-3xl font-bold">18</div>
+                                        <div class="text-xs opacity-90">Item Reported Found</div>
+                                    </div>
+                                    <i class="fas fa-arrow-up absolute top-2 right-2 text-xs opacity-70"></i>
                                 </div>
-                                <i class="fas fa-arrow-up absolute top-2 right-2 text-xs opacity-70"></i>
-                            </div>
-                            <div class="stat-card bg-gray-600 rounded-lg p-4 relative overflow-hidden">
-                                <div class="text-right">
-                                    <div class="text-3xl font-bold">15</div>
-                                    <div class="text-xs opacity-90">Unclaimed Item</div>
+                                <div class="stat-card bg-blue-600 rounded-lg p-4 relative overflow-hidden">
+                                    <div class="text-right">
+                                        <div class="text-3xl font-bold">3</div>
+                                        <div class="text-xs opacity-90">Item Returned</div>
+                                    </div>
+                                    <i class="fas fa-arrow-up absolute top-2 right-2 text-xs opacity-70"></i>
                                 </div>
-                                <i class="fas fa-arrow-down absolute top-2 right-2 text-xs opacity-70"></i>
+                                <div class="stat-card bg-gray-600 rounded-lg p-4 relative overflow-hidden">
+                                    <div class="text-right">
+                                        <div class="text-3xl font-bold">15</div>
+                                        <div class="text-xs opacity-90">Unclaimed Item</div>
+                                    </div>
+                                    <i class="fas fa-arrow-down absolute top-2 right-2 text-xs opacity-70"></i>
+                                </div>
                             </div>
-                        </div>
+                        </form>
                     </div>
                 </div>
 
@@ -329,7 +394,70 @@ $admin = $_SESSION['admin'];
             </div>
         </div>
     </div>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
+    <script>
+        const ctx = document.getElementById('statisticsChart').getContext('2d');
+
+        const foundData = <?= json_encode(array_values($foundByMonth)) ?>;
+        const lostData = <?= json_encode(array_values($lostByMonth)) ?>;
+
+        const chart = new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: [
+                    'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+                    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
+                ],
+                datasets: [
+                    {
+                        label: 'Found',
+                        data: foundData,
+                        backgroundColor: '#22c55e',
+                        borderRadius: 4,
+                        hidden: false
+                    },
+                    {
+                        label: 'Lost',
+                        data: lostData,
+                        backgroundColor: '#fbbf24',
+                        borderRadius: 4,
+                        hidden: false
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        ticks: { color: '#ccc' }
+                    },
+                    x: {
+                        ticks: { color: '#ccc' }
+                    }
+                },
+                plugins: {
+                    legend: {
+                        labels: { color: '#ccc' }
+                    }
+                }
+            }
+        });
+
+        // Toggle dataset visibility on button click
+        document.querySelector('button.bg-green-500').addEventListener('click', () => {
+            chart.data.datasets[0].hidden = false;
+            chart.data.datasets[1].hidden = true;
+            chart.update();
+        });
+
+        document.querySelector('button.bg-yellow-500').addEventListener('click', () => {
+            chart.data.datasets[0].hidden = true;
+            chart.data.datasets[1].hidden = false;
+            chart.update();
+        });
+    </script>
     <script>
 
         // Add hover effects and interactions
