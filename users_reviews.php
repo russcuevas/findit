@@ -6,46 +6,52 @@ if (!isset($_SESSION['admin'])) {
     exit;
 }
 
-$admin = $_SESSION['admin'];
+// Firestore API key
+$apiKey = "AIzaSyBnRceOZZNPF-qR65gKadBGwlYEADrqi_g";
 
-$projectId = 'findit-96080';
-$apiKey = 'AIzaSyBnRceOZZNPF-qR65gKadBGwlYEADrqi_g';
+// Handle "Approve Review" POST
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['approve_review'])) {
+    $reviewId = $_POST['reviewId'];
+    
+    $patchUrl = "https://firestore.googleapis.com/v1/projects/findit-96080/databases/(default)/documents/reviews/$reviewId?updateMask.fieldPaths=isPinned&key=$apiKey";
 
-$url = "https://firestore.googleapis.com/v1/projects/$projectId/databases/(default)/documents/meritShop?key=$apiKey";
+    $data = [
+        'fields' => [
+            'isPinned' => ['booleanValue' => true]
+        ]
+    ];
 
-// Fetch data from Firestore
-$response = file_get_contents($url);
-$data = json_decode($response, true);
+    $ch = curl_init();
+    curl_setopt($ch, CURLOPT_URL, $patchUrl);
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+    curl_setopt($ch, CURLOPT_CUSTOMREQUEST, "PATCH");
+    curl_setopt($ch, CURLOPT_HTTPHEADER, ['Content-Type: application/json']);
+    curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($data));
+    $result = curl_exec($ch);
+    $error = curl_error($ch);
+    curl_close($ch);
 
-// Extract and structure items
-$items = [];
-$totalItems = 0;
-$lowStockCount = 0;
-
-if (isset($data['documents'])) {
-    foreach ($data['documents'] as $document) {
-        $fields = $document['fields'] ?? [];
-
-        $name = $fields['name']['stringValue'] ?? 'Unnamed';
-        $image = $fields['image']['stringValue'] ?? 'assets/shop-items/default.png';
-        $stock = (int) ($fields['stock']['integerValue'] ?? 0);
-        $itemId = $fields['itemId']['stringValue'] ?? '';
-
-        $items[] = [
-            'itemId' => $itemId,
-            'name' => $name,
-            'image' => $image,
-            'stock' => $stock
-        ];
-
-        $totalItems++;
-
-        if ($stock < 10) {
-            $lowStockCount++;
-        }
+    if ($error) {
+        $_SESSION['error'] = "Failed to approve review: $error";
+    } else {
+        $_SESSION['success'] = "Review approved successfully!";
     }
+
+    header("Location: users_reviews.php");
+    exit;
 }
 
+// Fetch reviews from Firestore
+$firestoreUrl = "https://firestore.googleapis.com/v1/projects/findit-96080/databases/(default)/documents/reviews?key=$apiKey";
+
+$ch = curl_init();
+curl_setopt($ch, CURLOPT_URL, $firestoreUrl);
+curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+$response = curl_exec($ch);
+curl_close($ch);
+
+$reviewsData = json_decode($response, true);
+$reviews = $reviewsData['documents'] ?? [];
 ?>
 
 
@@ -115,11 +121,11 @@ if (isset($data['documents'])) {
                     <a href="claimant_approval.php" style="text-decoration: none;">Request</a>
                     <div class="ml-auto bg-orange-500 text-xs px-2 py-1 rounded-full">5</div>
                 </div>
-                <div class="sidebar-item px-4 py-3 rounded-lg flex items-center space-x-3 cursor-pointer">
+                <div class="sidebar-item px-4 py-3 rounded-lg bg-white bg-opacity-20 flex items-center space-x-3 cursor-pointer">
                     <i class="fas fa-chart-bar w-5"></i>
                     <a href="surrendered_items.php" style="text-decoration: none;">Reports</a>
                 </div>
-                <div class="sidebar-item px-4 py-3 rounded-lg bg-white bg-opacity-20 flex items-center space-x-3 cursor-pointer">
+                <div class="sidebar-item px-4 py-3 rounded-lg flex items-center space-x-3 cursor-pointer">
                     <i class="fas fa-shopping-cart w-5"></i>
                     <a href="merit_shop.php" style="text-decoration: none;">Merit Shop</a>
                 </div>
@@ -140,48 +146,63 @@ if (isset($data['documents'])) {
 
         <!-- Main Content -->
         <div class="flex-1 p-6 overflow-y-auto">
-            <!-- Header Section -->
-            <div class="flex justify-between items-start mb-8">
-                <div class="text-4xl font-bold text-white">Shop Inventory</div>
-            </div>
+            <div class="rounded-xl p-6 border border-gray-700" style="background: linear-gradient(to bottom, #13212B, #13212B);">
+                <div class="flex space-x-4 mb-4">
+                    <a href="surrendered_items.php" class="px-5 py-2.5 rounded-full text-sm font-medium text-white hover:bg-gray-700" >List Surrendered Items</a>
+                    <a href="users_reviews.php" class="px-5 py-2.5 rounded-full text-sm font-medium bg-black text-white" >User Reviews</a>
+                </div>
 
-            <div class="grid grid-cols-12 gap-6">
-                <div class="col-span-5 rounded-xl p-6 border border-gray-700" style="background: linear-gradient(to bottom, #13212B, #13212B);">
-                    <div class="h-[600px] overflow-y-auto pr-2">
-                        <div class="grid grid-cols-3 gap-4">
-                            <?php foreach ($items as $item): ?>
-                                <a href="view_item.php?itemId=<?= urlencode($item['itemId']) ?>" 
-                                class="bg-white p-4 rounded-lg flex flex-col items-center shadow">
-                                    <img src="<?= htmlspecialchars($item['image']) ?>" class="h-20 w-20 object-contain mb-2" alt="<?= htmlspecialchars($item['name']) ?>" />
-                                    <p style="color: #13212B;" class="text-sm font-semibold"><?= htmlspecialchars($item['stock']) ?> pcs</p>
-                                </a>
-                            <?php endforeach; ?>
+                <div class="overflow-x-auto">
+                    <div class="space-y-4">
+                <?php foreach ($reviews as $review): 
+                    $fields = $review['fields'];
+                    $description = $fields['description']['stringValue'] ?? '';
+                    $stars = $fields['stars']['integerValue'] ?? 0;
+                    $isPinned = isset($fields['isPinned']['booleanValue']) && $fields['isPinned']['booleanValue'];
+                    $reviewId = basename($review['name']);
+                ?>
+                <div class="bg-gray-900 rounded-xl shadow-lg p-5 flex flex-col md:flex-row justify-between items-start md:items-center space-y-4 md:space-y-0 md:space-x-6">
+    <!-- User Info -->
+                    <div class="flex items-center space-x-4">
+                        <div class="w-12 h-12 rounded-full overflow-hidden border-2 border-blue-500 flex-shrink-0">
+                            <img src="assets/dashboard/images/user.png" alt="User Avatar" class="w-full h-full object-cover">
                         </div>
+                        <div>
+                            <p class="text-gray-200 font-medium"><?php echo htmlspecialchars($description); ?></p>
+                            <div class="mt-1 flex items-center">
+                                <?php for ($i = 1; $i <= 5; $i++): ?>
+                                    <i class="<?php echo $i <= $stars ? 'fas' : 'far'; ?> fa-star text-yellow-400 mr-1"></i>
+                                <?php endfor; ?>
+                                <span class="ml-2 text-gray-400 font-semibold"><?php echo htmlspecialchars($stars); ?>/5</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Action Button -->
+                    <div class="flex-shrink-0">
+                        <?php if (!$isPinned): ?>
+                            <form method="POST">
+                                <input type="hidden" name="reviewId" value="<?php echo $reviewId; ?>">
+                                <button type="submit" name="approve_review" 
+                                        class="bg-green-500 hover:bg-green-600 transition duration-300 text-white px-5 py-2 rounded-lg font-semibold shadow-md hover:shadow-lg">
+                                    Approve Review
+                                </button>
+                            </form>
+                        <?php else: ?>
+                            <span class="text-green-400 font-semibold bg-gray-800 px-4 py-2 rounded-lg">Already Pinned</span>
+                        <?php endif; ?>
                     </div>
                 </div>
 
-                <div class="col-span-7">
-                    <div class="rounded-xl p-6 h-full border border-gray-700 flex flex-col justify-between" style="background: linear-gradient(to bottom, #13212B, #13212B); padding: 100px;">
-                        <a href="add_item.php" class="bg-green-500 text-white font-semibold py-3 rounded-lg hover:bg-green-600 transition text-center">
-                            Add new item
-                        </a>
-                            <div class="mt-10 text-white space-y-6 text-lg" style="font-size: 50px;">
-                            <div class="flex justify-between">
-                                <span>Low Stocks</span>
-                                <span><?= $lowStockCount ?></span>
-                            </div>
-                            <br>
-                            <div class="flex justify-between">
-                                <span>Items</span>
-                                <span><?= $totalItems ?></span>
-                            </div>
-                        </div>
+                <?php endforeach; ?>
                     </div>
                 </div>
             </div>
         </div>
     </div>
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    <script src="//unpkg.com/alpinejs" defer></script>
+
     <?php if (isset($_SESSION['success'])): ?>
         <script>
             Swal.fire({

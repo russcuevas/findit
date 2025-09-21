@@ -129,12 +129,12 @@ if (isset($listData['documents'])) {
                 </div>
                 <div class="sidebar-item px-4 py-3 rounded-lg flex items-center space-x-3 cursor-pointer">
                     <i class="fas fa-paper-plane w-5"></i>
-                    <span>Request</span>
+                    <a href="claimant_approval.php" style="text-decoration: none;">Request</a>
                     <div class="ml-auto bg-orange-500 text-xs px-2 py-1 rounded-full">5</div>
                 </div>
                 <div class="sidebar-item px-4 py-3 rounded-lg flex items-center space-x-3 cursor-pointer">
                     <i class="fas fa-chart-bar w-5"></i>
-                    <span>Reports</span>
+                    <a href="surrendered_items.php" style="text-decoration: none;">Reports</a>
                 </div>
                 <div class="sidebar-item px-4 py-3 rounded-lg bg-white bg-opacity-20 flex items-center space-x-3 cursor-pointer">
                     <i class="fas fa-shopping-cart w-5"></i>

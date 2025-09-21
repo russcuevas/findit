@@ -13,7 +13,98 @@ $admin = $_SESSION['admin'];
 $projectId = 'findit-96080';
 $apiKey = 'AIzaSyBnRceOZZNPF-qR65gKadBGwlYEADrqi_g';
 
-// 🔄 Fetch Items from Firestore
+function getUserFullName($userId, $projectId, $apiKey) {
+    $url = "https://firestore.googleapis.com/v1/projects/$projectId/databases/(default)/documents/users/$userId?key=$apiKey";
+    $ch = curl_init($url);
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+    $response = curl_exec($ch);
+    curl_close($ch);
+
+    $data = json_decode($response, true);
+
+    return $data['fields']['fullName']['stringValue'] ?? $userId;
+}
+
+
+// fetch notifications
+function fetchNotifications($projectId, $apiKey) {
+    $url = "https://firestore.googleapis.com/v1/projects/$projectId/databases/(default)/documents/notifications?key=$apiKey";
+    $ch = curl_init($url);
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+    curl_setopt($ch, CURLOPT_HTTPHEADER, ['Content-Type: application/json']);
+    $response = curl_exec($ch);
+    curl_close($ch);
+
+    $data = json_decode($response, true);
+    return $data['documents'] ?? [];
+}
+
+
+
+// fetch reviews
+function fetchReviews($projectId, $apiKey) {
+    $url = "https://firestore.googleapis.com/v1/projects/$projectId/databases/(default)/documents/reviews?key=$apiKey";
+    $ch = curl_init($url);
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+    curl_setopt($ch, CURLOPT_HTTPHEADER, ['Content-Type: application/json']);
+    $response = curl_exec($ch);
+    curl_close($ch);
+
+    $data = json_decode($response, true);
+    $reviews = $data['documents'] ?? [];
+
+    // Filter for isPinned = true
+    $pinnedReviews = [];
+    foreach ($reviews as $doc) {
+        $fields = $doc['fields'] ?? [];
+        if (isset($fields['isPinned']['booleanValue']) && $fields['isPinned']['booleanValue'] === true) {
+            $pinnedReviews[] = $doc;
+        }
+    }
+
+    return $pinnedReviews;
+}
+
+
+// fetch users
+function fetchUsers($projectId, $apiKey) {
+    $url = "https://firestore.googleapis.com/v1/projects/$projectId/databases/(default)/documents/users?key=$apiKey";
+    $ch = curl_init($url);
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+    curl_setopt($ch, CURLOPT_HTTPHEADER, ['Content-Type: application/json']);
+    $response = curl_exec($ch);
+    curl_close($ch);
+
+    $data = json_decode($response, true);
+    return $data['documents'] ?? [];
+}
+
+$users = fetchUsers($projectId, $apiKey);
+
+$totalUsers = 0;
+$newUsers = 0;
+
+foreach ($users as $doc) {
+    $fields = $doc['fields'] ?? [];
+    $isVerified = $fields['isVerified']['booleanValue'] ?? false;
+    $createdAt = $fields['createdAt']['timestampValue'] ?? null;
+
+    if ($isVerified) {
+        $totalUsers++;
+
+        // ✅ Example: consider "new" if created in the last 7 days
+        if ($createdAt) {
+            $createdTime = strtotime($createdAt);
+            if ($createdTime >= strtotime('-7 days')) {
+                $newUsers++;
+            }
+        }
+    }
+}
+
+
+
+// fetch items
 function fetchItems($projectId, $apiKey) {
     $url = "https://firestore.googleapis.com/v1/projects/$projectId/databases/(default)/documents/items?key=$apiKey";
     $ch = curl_init($url);
@@ -26,9 +117,9 @@ function fetchItems($projectId, $apiKey) {
     return $data['documents'] ?? [];
 }
 
-// 📊 Count by Month
+
+// fetch graphs
 function countByMonth($documents) {
-    // Initialize counters
     $foundByMonth = array_fill(1, 12, 0);
     $lostByMonth = array_fill(1, 12, 0);
 
@@ -39,10 +130,8 @@ function countByMonth($documents) {
         $createdAt = $fields['createdAt']['timestampValue'] ?? '';
 
         if ($status !== 'approved' || !in_array($type, ['found', 'lost']) || !$createdAt) continue;
-
-        // Parse month from createdAt
         $timestamp = strtotime($createdAt);
-        $month = (int) date('n', $timestamp); // 1 = Jan, 12 = Dec
+        $month = (int) date('n', $timestamp);
 
         if ($type === 'found') {
             $foundByMonth[$month]++;
@@ -57,6 +146,108 @@ function countByMonth($documents) {
 // 🔃 Get data
 $documents = fetchItems($projectId, $apiKey);
 [$foundByMonth, $lostByMonth] = countByMonth($documents);
+$notifications = fetchNotifications($projectId, $apiKey);
+$reviews = fetchReviews($projectId, $apiKey);
+$categories = [];
+
+foreach ($documents as $doc) {
+    $fields = $doc['fields'] ?? [];
+    $title = $fields['title']['stringValue'] ?? 'Unknown';
+    $type  = $fields['type']['stringValue'] ?? '';
+    $status = $fields['status']['stringValue'] ?? '';
+
+    // ✅ Only count approved items
+    if ($status !== 'approved') continue;
+
+    if (!isset($categories[$title])) {
+        $categories[$title] = ['lost' => 0, 'found' => 0];
+    }
+
+    if ($type === 'lost') {
+        $categories[$title]['lost']++;
+    } elseif ($type === 'found') {
+        $categories[$title]['found']++;
+    }
+}
+
+function filterActivitySummary($items, $claims, $period = 'today') {
+    $counts = [
+        'lost' => 0,
+        'found' => 0,
+        'returned' => 0,
+        'unclaimed' => 0
+    ];
+
+    $now = time();
+
+    // Helper to check period
+    $checkPeriod = function($timestamp) use ($period) {
+        switch ($period) {
+            case 'week':
+                return $timestamp >= strtotime('monday this week');
+            case 'month':
+                return date('Y-m', $timestamp) === date('Y-m');
+            case 'year':
+                return date('Y', $timestamp) === date('Y');
+            case 'today':
+            default:
+                return date('Y-m-d', $timestamp) === date('Y-m-d');
+        }
+    };
+
+    // ✅ Process items (lost & found)
+    foreach ($items as $doc) {
+        $fields = $doc['fields'] ?? [];
+        $type = $fields['type']['stringValue'] ?? '';
+        $status = $fields['status']['stringValue'] ?? '';
+        $createdAt = $fields['createdAt']['timestampValue'] ?? '';
+
+        if (!$createdAt) continue;
+        $timestamp = strtotime($createdAt);
+
+        if (!$checkPeriod($timestamp)) continue;
+
+        if ($status === 'approved' && $type === 'lost') {
+            $counts['lost']++;
+        } elseif ($status === 'approved' && $type === 'found') {
+            $counts['found']++;
+        }
+    }
+
+    // ✅ Process claims (unclaimed & returned)
+    foreach ($claims as $doc) {
+        $fields = $doc['fields'] ?? [];
+        $status = $fields['status']['stringValue'] ?? '';
+        $createdAt = $fields['createdAt']['timestampValue'] ?? '';
+
+        if (!$createdAt) continue;
+        $timestamp = strtotime($createdAt);
+
+        if (!$checkPeriod($timestamp)) continue;
+
+        if ($status === 'pending') {
+            $counts['unclaimed']++;
+        } elseif ($status === 'approved') {
+            $counts['returned']++;
+        }
+    }
+
+    return $counts;
+}
+
+// 🔃 Get data from API
+$itemsUrl = "https://firestore.googleapis.com/v1/projects/findit-96080/databases/(default)/documents/items?key=AIzaSyBnRceOZZNPF-qR65gKadBGwlYEADrqi_g";
+$claimsUrl = "https://firestore.googleapis.com/v1/projects/findit-96080/databases/(default)/documents/claims?key=AIzaSyBnRceOZZNPF-qR65gKadBGwlYEADrqi_g";
+
+$itemsData = json_decode(file_get_contents($itemsUrl), true);
+$claimsData = json_decode(file_get_contents($claimsUrl), true);
+
+$itemsDocs = $itemsData['documents'] ?? [];
+$claimsDocs = $claimsData['documents'] ?? [];
+
+// 🔃 Get selected filter from query (?filter=week,month,year,today)
+$filter = $_GET['filter'] ?? 'today';
+$activitySummary = filterActivitySummary($itemsDocs, $claimsDocs, $filter);
 ?>
 
 <!DOCTYPE html>
@@ -127,7 +318,7 @@ $documents = fetchItems($projectId, $apiKey);
                 </div>
                 <div class="sidebar-item px-4 py-3 rounded-lg flex items-center space-x-3 cursor-pointer">
                     <i class="fas fa-chart-bar w-5"></i>
-                    <span>Reports</span>
+                    <a href="surrendered_items.php" style="text-decoration: none;">Reports</a>
                 </div>
                 <div class="sidebar-item px-4 py-3 rounded-lg flex items-center space-x-3 cursor-pointer">
                     <i class="fas fa-shopping-cart w-5"></i>
@@ -156,46 +347,74 @@ $documents = fetchItems($projectId, $apiKey);
             <div class="flex items-center justify-between h-full space-x-4">
                 
                 <!-- Time and Date Box -->
-                <div class="flex-1 p-3  transition-colors text-white leading-tight">
-                    <div class="font-semibold text-3xl sm:text-4xl md:text-5xl">8:45pm</div>
-                    <div class="text-gray-400 text-base sm:text-lg md:text-xl">April 1, 2025</div>
+                <div class="flex-1 p-3 transition-colors text-white leading-tight">
+                    <div id="current-time" class="font-semibold text-3xl sm:text-4xl md:text-5xl"></div>
+                    <div id="current-date" class="text-gray-400 text-base sm:text-lg md:text-xl"></div>
                 </div>
+
+                <script>
+                function updateTime() {
+                    const now = new Date();
+
+                    // Format time: h:mma
+                    let hours = now.getHours();
+                    const minutes = now.getMinutes().toString().padStart(2, '0');
+                    const ampm = hours >= 12 ? 'pm' : 'am';
+                    hours = hours % 12 || 12;
+                    const timeString = `${hours}:${minutes}${ampm}`;
+
+                    // Format date: Month day, Year
+                    const options = { month: 'long', day: 'numeric', year: 'numeric' };
+                    const dateString = now.toLocaleDateString('en-US', options);
+
+                    document.getElementById('current-time').textContent = timeString;
+                    document.getElementById('current-date').textContent = dateString;
+                }
+
+                // Update immediately
+                updateTime();
+                // Update every second
+                setInterval(updateTime, 1000);
+                </script>
+
+
+
 
                 <!-- Calendar Icon with Notification -->
                 <div class="relative">
                     <button class="bg-gray-800 p-5 rounded-md hover:bg-gray-700 transition-colors">
                         <i style="font-size: 50px;" class="fas fa-calendar text-white text-xl"></i>
                     </button>
-                    <span class="absolute -top-1 -right-1 w-4 h-4 bg-red-500 text-[10px] text-white rounded-full flex items-center justify-center">1</span>
                 </div>
                 
             </div>
         </div>
 
 
-    <!-- Notifications Panel -->
-                <div class="flex-1 min-w-[250px] bg-gray-800 rounded-xl p-4 border border-gray-700 space-y-3" style="background-color: #13212B !important;">
-                    <!-- Notification Item -->
-                    <div class="flex items-center justify-between p-3 bg-gray-700 rounded-lg">
-                        <span>
-                            <strong class="text-blue-400">Junjun Dela Cruz</strong> is requesting to approve the post in <strong class="text-green-400">cellphone</strong> listing.
-                        </span>
-                        <span class="text-xs text-gray-400 whitespace-nowrap">09:45 Pm</span>
-                    </div>
+                <!-- Notifications Panel -->
+                <div class="flex-1 min-w-[250px] bg-gray-800 rounded-xl p-4 border border-gray-700 space-y-3" style="background-color: #13212B !important; max-height: 205px; overflow-y: auto;">
+                    <?php foreach ($notifications as $doc): 
+                        $fields = $doc['fields'] ?? [];
+                        $type = $fields['type']['stringValue'] ?? '';
 
-                    <div class="flex items-center justify-between p-3 bg-gray-700 rounded-lg">
-                        <span>
-                            <strong class="text-blue-400">Naja Chu Evangelista</strong> is claiming the cellphone mentioned in Junjun Dela Cruz's <strong class="text-yellow-400">post</strong>
-                        </span>
-                        <span class="text-xs text-gray-400 whitespace-nowrap">09:45 Pm</span>
-                    </div>
+                        if ($type !== 'admin') continue;
 
-                    <div class="flex items-center justify-between p-3 bg-gray-700 rounded-lg">
-                        <span>
-                            <strong class="text-blue-400">Marivic De Guzman</strong> surrendered a <strong class="text-green-400">wallet</strong> to authorities in Brgy. Concepcion.
-                        </span>
-                        <span class="text-xs text-gray-400 whitespace-nowrap">09:45 Pm</span>
-                    </div>
+                        $message   = $fields['message']['stringValue'] ?? '';
+                        $createdAt = $fields['createdAt']['timestampValue'] ?? '';
+                        $sentBy    = $fields['sentBy']['stringValue'] ?? '';
+
+                        // ✅ get full name from users table
+                        $sentByFullName = getUserFullName($sentBy, $projectId, $apiKey);
+
+                        $time = $createdAt ? date("h:i A", strtotime($createdAt)) : '';
+                    ?>
+                        <div class="flex items-center justify-between p-3 bg-gray-700 rounded-lg">
+                            <span>
+                                <strong class="text-blue-400"><?= htmlspecialchars($sentByFullName) ?></strong> <?= htmlspecialchars($message) ?>
+                            </span>
+                            <span class="text-xs text-gray-400 whitespace-nowrap"><?= $time ?></span>
+                        </div>
+                    <?php endforeach; ?>
                 </div>
             </div>
 
@@ -219,64 +438,51 @@ $documents = fetchItems($projectId, $apiKey);
                     <div class="p-4">
                         <div class="flex items-center justify-between mb-4">
                             <h3 class="relative inline-block">
-                            Reviews
-                            <span class="absolute top-0 right-0 bg-red-500 text-xs text-white px-2 py-1 rounded-full" style="top: -10px!important; right: -25px !important">2</span>
+                                Reviews
+                                <span class="absolute top-0 right-0 bg-red-500 text-xs text-white px-2 py-1 rounded-full" 
+                                    style="top: -10px!important; right: -25px !important">
+                                    <?= count($reviews) ?>
+                                </span>
                             </h3>
                         </div>
                         <div class="space-y-3">
+                            <?php foreach ($reviews as $doc): 
+                                $fields = $doc['fields'] ?? [];
+                                $description = $fields['description']['stringValue'] ?? '';
+                                $stars = (int)($fields['stars']['integerValue'] ?? 0);
+                                $userId = $fields['userId']['stringValue'] ?? '';
+                                
+                                // Generate star string ★★★★☆
+                                $starDisplay = str_repeat("★", $stars) . str_repeat("☆", 5 - $stars);
+                            ?>
                             <div class="flex items-center space-x-2">
-                                <div class="w-8 h-8 bg-blue-500 rounded-full flex items-center justify-center text-sm"><img src="assets/dashboard/images/user.png" alt=""></div>
+                                <div class="w-8 h-8 bg-blue-500 rounded-full flex items-center justify-center text-sm">
+                                    <img src="assets/dashboard/images/user.png" alt="">
+                                </div>
                                 <div class="flex-1">
-                                    <div class="text-sm font-medium">helpful application ❤️</div>
+                                    <div class="text-sm font-medium"><?= htmlspecialchars($description) ?></div>
                                     <div class="flex items-center space-x-1">
-                                        <span class="text-yellow-400">★★★★★</span>
-                                        <span class="text-xs text-gray-400">4.5</span>
+                                        <span class="text-yellow-400"><?= $starDisplay ?></span>
+                                        <span class="text-xs text-gray-400"><?= number_format($stars, 1) ?></span>
                                     </div>
                                 </div>
                             </div>
-                            <div class="flex items-center space-x-2">
-                                <div class="w-8 h-8 bg-blue-500 rounded-full flex items-center justify-center text-sm"><img src="assets/dashboard/images/user.png" alt=""></div>
-                                <div class="flex-1">
-                                    <div class="text-sm font-medium">love it!, easy to used</div>
-                                    <div class="flex items-center space-x-1">
-                                        <span class="text-yellow-400">★★★★★</span>
-                                        <span class="text-xs text-gray-400">4.5</span>
-                                    </div>
-                                </div>
-                            </div>
-                            <div class="flex items-center space-x-2">
-                                <div class="w-8 h-8 bg-blue-500 rounded-full flex items-center justify-center text-sm"><img src="assets/dashboard/images/user.png" alt=""></div>
-                                <div class="flex-1">
-                                    <div class="text-sm font-medium">because of this app, I found my lost dog and thank you so much</div>
-                                    <div class="flex items-center space-x-1">
-                                        <span class="text-yellow-400">★★★★</span>
-                                        <span class="text-xs text-gray-400">2.8</span>
-                                    </div>
-                                </div>
-                            </div>
-                            <div class="flex items-center space-x-2">
-                                <div class="w-8 h-8 bg-blue-500 rounded-full flex items-center justify-center text-sm"><img src="assets/dashboard/images/user.png" alt=""></div>
-                                <div class="flex-1">
-                                    <div class="text-sm font-medium">this is a great app for lost and found.</div>
-                                    <div class="flex items-center space-x-1">
-                                        <span class="text-yellow-400">★★★★</span>
-                                        <span class="text-xs text-gray-400">4.2</span>
-                                    </div>
-                                </div>
-                            </div>
+                            <?php endforeach; ?>
                         </div>
                     </div>
 
+
                     <!-- Activity Summary with Stats -->
                     <div class="space-y-4">
-                        <form action="">
+                        <form method="get">
                             <div class="flex items-center justify-between">
                                 <h3 class="text-lg font-semibold p-4 rounded-xl" style="background-color: #13212B;">Activity Summary</h3>
                                 <div class="flex space-x-2 text-xs">
                                     <p>Filter</p>
-                                    <button class="bg-gray-700 px-2 py-1 rounded">Week</button>
-                                    <button class=" px-2 py-1 rounded">Month</button>
-                                    <button class=" px-2 py-1 rounded">Year</button>
+                                    <a href="?filter=week" class="px-2 py-1 rounded <?= $filter=='week'?'bg-gray-700':'' ?>">Week</a>
+                                    <a href="?filter=month" class="px-2 py-1 rounded <?= $filter=='month'?'bg-gray-700':'' ?>">Month</a>
+                                    <a href="?filter=year" class="px-2 py-1 rounded <?= $filter=='year'?'bg-gray-700':'' ?>">Year</a>
+                                    <a href="?filter=today" class="px-2 py-1 rounded <?= $filter=='today'?'bg-gray-700':'' ?>">Today</a>
                                 </div>
                             </div>
                             <br>
@@ -284,97 +490,56 @@ $documents = fetchItems($projectId, $apiKey);
                             <div class="grid grid-cols-1 gap-3">
                                 <div class="stat-card bg-red-600 rounded-lg p-4 relative overflow-hidden">
                                     <div class="text-right">
-                                        <div class="text-3xl font-bold">23</div>
+                                        <div class="text-3xl font-bold"><?= $activitySummary['lost'] ?></div>
                                         <div class="text-xs opacity-90">Item Reported Lost</div>
                                     </div>
-                                    <i class="fas fa-arrow-up absolute top-2 right-2 text-xs opacity-70"></i>
                                 </div>
                                 <div class="stat-card bg-green-600 rounded-lg p-4 relative overflow-hidden">
                                     <div class="text-right">
-                                        <div class="text-3xl font-bold">18</div>
+                                        <div class="text-3xl font-bold"><?= $activitySummary['found'] ?></div>
                                         <div class="text-xs opacity-90">Item Reported Found</div>
                                     </div>
-                                    <i class="fas fa-arrow-up absolute top-2 right-2 text-xs opacity-70"></i>
                                 </div>
                                 <div class="stat-card bg-blue-600 rounded-lg p-4 relative overflow-hidden">
                                     <div class="text-right">
-                                        <div class="text-3xl font-bold">3</div>
+                                        <div class="text-3xl font-bold"><?= $activitySummary['returned'] ?></div>
                                         <div class="text-xs opacity-90">Item Returned</div>
                                     </div>
-                                    <i class="fas fa-arrow-up absolute top-2 right-2 text-xs opacity-70"></i>
                                 </div>
                                 <div class="stat-card bg-gray-600 rounded-lg p-4 relative overflow-hidden">
                                     <div class="text-right">
-                                        <div class="text-3xl font-bold">15</div>
+                                        <div class="text-3xl font-bold"><?= $activitySummary['unclaimed'] ?></div>
                                         <div class="text-xs opacity-90">Unclaimed Item</div>
                                     </div>
-                                    <i class="fas fa-arrow-down absolute top-2 right-2 text-xs opacity-70"></i>
                                 </div>
                             </div>
                         </form>
                     </div>
+
                 </div>
 
                 <!-- Bottom Section -->
                 <div class="col-span-8 rounded-xl p-6 border border-gray-700" style="background: linear-gradient(to bottom, #13212B, #13212B);">
                     <div class="overflow-x-auto">
-                        <table class="w-full text-left">
-                            <thead>
-                                <tr class="border-b border-gray-600">
-                                    <th class="pb-3 font-medium text-gray-300" style="font-size: 30px;">Category</th>
-                                    <th class="pb-3 text-center font-medium text-gray-300" style="font-size: 30px;">Lost</th>
-                                    <th class="pb-3 text-center font-medium text-gray-300" style="font-size: 30px;">Found</th>
-                                </tr>
-                            </thead>
-                            <tbody class="text-sm">
-                                <tr class="border-b border-gray-700">
-                                    <td class="py-3">Keys</td>
-                                    <td class="py-3 text-center">20</td>
-                                    <td class="py-3 text-center">16</td>
-                                </tr>
-                                <tr class="border-b border-gray-700">
-                                    <td class="py-3">Electronics</td>
-                                    <td class="py-3 text-center">17</td>
-                                    <td class="py-3 text-center">10</td>
-                                </tr>
-                                <tr class="border-b border-gray-700">
-                                    <td class="py-3">Jewelries</td>
-                                    <td class="py-3 text-center">10</td>
-                                    <td class="py-3 text-center">6</td>
-                                </tr>
-                                <tr class="border-b border-gray-700">
-                                    <td class="py-3">Wallets</td>
-                                    <td class="py-3 text-center">15</td>
-                                    <td class="py-3 text-center">13</td>
-                                </tr>
-                                <tr class="border-b border-gray-700">
-                                    <td class="py-3">IDs</td>
-                                    <td class="py-3 text-center">18</td>
-                                    <td class="py-3 text-center">10</td>
-                                </tr>
-                                <tr class="border-b border-gray-700">
-                                    <td class="py-3">Documents</td>
-                                    <td class="py-3 text-center">7</td>
-                                    <td class="py-3 text-center">4</td>
-                                </tr>
-                                <tr class="border-b border-gray-700">
-                                    <td class="py-3">Bags</td>
-                                    <td class="py-3 text-center">5</td>
-                                    <td class="py-3 text-center">3</td>
-                                </tr>
-                                <tr class="border-b border-gray-700">
-                                    <td class="py-3">Pets</td>
-                                    <td class="py-3 text-center">2</td>
-                                    <td class="py-3 text-center">0</td>
-                                </tr>
-                                <tr>
-                                    <td class="py-3">Others</td>
-                                    <td class="py-3 text-center">40</td>
-                                    <td class="py-3 text-center">20</td>
-                                </tr>
-                            </tbody>
-                        </table>
-                    </div>
+    <table class="w-full text-left">
+        <thead>
+            <tr class="border-b border-gray-600">
+                <th class="pb-3 font-medium text-gray-300" style="font-size: 30px;">Category</th>
+                <th class="pb-3 text-center font-medium text-gray-300" style="font-size: 30px;">Lost</th>
+                <th class="pb-3 text-center font-medium text-gray-300" style="font-size: 30px;">Found</th>
+            </tr>
+        </thead>
+        <tbody class="text-sm">
+            <?php foreach ($categories as $title => $counts): ?>
+                <tr class="border-b border-gray-700">
+                    <td class="py-3"><?= htmlspecialchars($title) ?></td>
+                    <td class="py-3 text-center"><?= $counts['lost'] ?></td>
+                    <td class="py-3 text-center"><?= $counts['found'] ?></td>
+                </tr>
+            <?php endforeach; ?>
+        </tbody>
+    </table>
+</div>
                 </div>
 
                 <!-- User Counts -->
@@ -382,15 +547,16 @@ $documents = fetchItems($projectId, $apiKey);
                     <div class="bg-gray-800 rounded-xl p-6 border border-gray-700">
                         <h3 class="text-lg font-semibold mb-6">User Counts</h3>
                         <div class="text-center mb-6">
-                            <div class="text-5xl font-bold mb-2">5</div>
+                            <div class="text-5xl font-bold mb-2"><?= $newUsers ?></div>
                             <div class="text-gray-400 text-sm">New Users</div>
                         </div>
                         <div class="text-center">
-                            <div class="text-5xl font-bold mb-2">25</div>
+                            <div class="text-5xl font-bold mb-2"><?= $totalUsers ?></div>
                             <div class="text-gray-400 text-sm">Total Users</div>
                         </div>
                     </div>
                 </div>
+
             </div>
         </div>
     </div>
