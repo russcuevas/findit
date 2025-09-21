@@ -53,11 +53,12 @@ if (isset($itemsData['documents'])) {
         $type   = $fields['type']['stringValue'] ?? '';
         $status = $fields['status']['stringValue'] ?? '';
         $userId = $fields['userId']['stringValue'] ?? '';
-
+        $docId  = basename($doc['name']);
 if (
     ($type === "found" && $status === "approved") ||
     ($type === "lost" && in_array($status, ["approved", "pending"]))
 ) {            $requests[] = [
+                "docId"       => $docId, 
                 "title"       => $fields['title']['stringValue'] ?? '',
                 "description" => $fields['description']['stringValue'] ?? '',
                 "location"    => $fields['location']['stringValue'] ?? '',
@@ -313,21 +314,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'], $_POST['doc
                             </div>
                         </div>
                         <div class="flex space-x-3 mt-4">
+                        <div class="flex space-x-3 mt-4">
                             <?php if ($req['type'] === 'found'): ?>
                                 <h3 class="font-semibold text-green-400">Already received by barangay</h3>
-                                <?php elseif ($req['type'] === 'lost'): ?>
-                                    <?php if ($req['status'] === 'pending'): ?>
-                                        <!-- Show approval form if still pending -->
-                                        <form class="approval-form" action="" method="POST">
-                                            <input type="hidden" name="docId" value="<?= basename($doc['name']) ?>">
-                                            <button type="submit" name="action" value="approve" class="bg-green-600 hover:bg-green-700 px-4 py-2 rounded-lg text-sm">Approve</button>
-                                            <button type="button" class="deny-btn bg-red-600 hover:bg-red-700 px-4 py-2 rounded-lg text-sm">Deny</button>
-                                        </form>
-                                    <?php elseif ($req['status'] === 'approved'): ?>
-                                        <!-- Show message if already approved -->
-                                        <h3 class="font-semibold text-green-400">Already approved</h3>
-                                    <?php endif; ?>
+                            <?php elseif ($req['type'] === 'lost'): ?>
+                                <?php if ($req['status'] === 'pending'): ?>
+                                    <!-- Show approval form if still pending -->
+                                    <form class="approval-form" action="" method="POST">
+                                        <input type="hidden" name="docId" value="<?= htmlspecialchars($req['docId']) ?>">
+                                        <button type="submit" name="action" value="approve" class="bg-green-600 hover:bg-green-700 px-4 py-2 rounded-lg text-sm">Approve</button>
+                                        <button type="button" class="deny-btn bg-red-600 hover:bg-red-700 px-4 py-2 rounded-lg text-sm">Deny</button>
+                                    </form>
+                                <?php elseif ($req['status'] === 'approved'): ?>
+                                    <!-- Show message if already approved -->
+                                    <h3 class="font-semibold text-green-400">Already approved</h3>
                                 <?php endif; ?>
+                            <?php endif; ?>
+                        </div>
+
                         </div>
 
 

@@ -100,7 +100,7 @@ function authenticateAdmin($username, $password, $admins) {
     <form action="" method="POST" autocomplete="off">
       <input type="text" name="username" placeholder="Username" required autofocus />
       <input type="password" name="password" placeholder="Password" required />
-      <a href="#" class="create-account">Create admin account?</a>
+      <!-- <a href="#" class="create-account">Create admin account?</a> -->
       <button type="submit">Sign in</button>
     </form>
   </div>
