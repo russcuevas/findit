@@ -55,10 +55,12 @@ if (isset($itemsData['documents'])) {
         $type   = $fields['type']['stringValue'] ?? '';
         $status = $fields['status']['stringValue'] ?? '';
         $userId = $fields['userId']['stringValue'] ?? '';
+        $relatedBrgy = $fields['turnOverDetails']['mapValue']['fields']['relatedBrgy']['stringValue'] ?? '';
 
-        if ($type === "found") {
+        // Only show items if they match logged-in barangay
+        if ($type === "found" && $relatedBrgy === $barangayName) {
             $requests[] = [
-                        "docId"       => basename($doc['name']), // ✅ add this
+                "docId"       => basename($doc['name']),
                 "title"       => $fields['title']['stringValue'] ?? '',
                 "description" => $fields['description']['stringValue'] ?? '',
                 "location"    => $fields['location']['stringValue'] ?? '',
@@ -67,7 +69,7 @@ if (isset($itemsData['documents'])) {
                 "reward"      => $fields['reward']['stringValue'] ?? '',
                 "type"        => $type,
                 "status"      => $status,
-                "surrendered" => $fields['turnOverDetails']['mapValue']['fields']['relatedBrgy']['stringValue'] ?? 'N/A',
+                "surrendered" => $relatedBrgy,
                 "finder"      => $fields['turnOverDetails']['mapValue']['fields']['staff']['stringValue'] ?? 'Unknown',
                 "contact"     => $fields['turnOverDetails']['mapValue']['fields']['contact']['stringValue'] ?? 'N/A',
                 "proof"       => isset($fields['proof']['arrayValue']['values'])
@@ -229,7 +231,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['docId'], $_POST['acti
             <div class="rounded-xl p-6 border border-gray-700" style="background: linear-gradient(to bottom, #13212B, #13212B);">
                 <div class="flex space-x-4 mb-4">
                     <a href="dashboard.php" class="px-5 py-2.5 rounded-full text-sm font-medium bg-black text-white">Found Items</a>
-                    <a href="post_approval.php" class="px-5 py-2.5 rounded-full text-sm font-medium text-white hover:bg-gray-700">Claim Information</a>
+                    <a href="claim_information.php" class="px-5 py-2.5 rounded-full text-sm font-medium text-white hover:bg-gray-700">Claim Information</a>
                 </div>
                 <div class="overflow-x-auto">
                     <?php foreach ($requests as $index => $req): ?>

@@ -1,5 +1,9 @@
 <?php
 session_start();
+// ✅ Generate QR Code
+    require 'vendor/autoload.php';
+    use Endroid\QrCode\QrCode;
+    use Endroid\QrCode\Writer\PngWriter;
 
 if (!isset($_SESSION['admin'])) {
     header("Location: login.php");
@@ -58,13 +62,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['docId'], $_POST['acti
     $action = $_POST['action'];
 
     if ($action === 'approve') {
-        // 🔹 Approve: update status to "approved"
         $status = "approved";
-        $updateUrl = "https://firestore.googleapis.com/v1/projects/findit-96080/databases/(default)/documents/claims/$docId?updateMask.fieldPaths=status&key=AIzaSyBnRceOZZNPF-qR65gKadBGwlYEADrqi_g";
+        $qrData = "http://192.168.1.10/findit/barangay/scan_qr.php?id=" . $docId;
 
+        // Generate QR
+        $qr = new QrCode($qrData);
+        $writer = new PngWriter();
+        $qrDir = __DIR__ . "/assets/images/qr";
+        if (!is_dir($qrDir)) mkdir($qrDir, 0777, true);
+        $qrPath = "$qrDir/{$docId}.png";
+        $writer->write($qr)->saveToFile($qrPath);
+        $qrField = "{$docId}.png";
+
+        // Update Firestore
+        $updateUrl = "https://firestore.googleapis.com/v1/projects/findit-96080/databases/(default)/documents/claims/$docId?updateMask.fieldPaths=status&updateMask.fieldPaths=qr_code&key=$apiKey";
         $payload = json_encode([
             "fields" => [
-                "status" => ["stringValue" => $status]
+                "status" => ["stringValue" => $status],
+                "qr_code" => ["stringValue" => $qrField]
             ]
         ]);
 
@@ -73,22 +88,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['docId'], $_POST['acti
         curl_setopt($ch, CURLOPT_POSTFIELDS, $payload);
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
         curl_setopt($ch, CURLOPT_HTTPHEADER, ['Content-Type: application/json']);
-        $result = curl_exec($ch);
+        curl_exec($ch);
         curl_close($ch);
 
     } elseif ($action === 'deny') {
-        // 🔹 Deny: delete the document
-        $deleteUrl = "https://firestore.googleapis.com/v1/projects/findit-96080/databases/(default)/documents/claims/$docId?key=AIzaSyBnRceOZZNPF-qR65gKadBGwlYEADrqi_g";
+        // 🔹 Deny claim
+        $deleteUrl = "https://firestore.googleapis.com/v1/projects/findit-96080/databases/(default)/documents/claims/$docId?key=$apiKey";
         $ch = curl_init($deleteUrl);
         curl_setopt($ch, CURLOPT_CUSTOMREQUEST, "DELETE");
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-        $result = curl_exec($ch);
+        curl_exec($ch);
         curl_close($ch);
     }
 
-    $_SESSION['success'] = "Update successfully";
+    $_SESSION['success'] = "Action successfully completed!";
     header("Location: " . $_SERVER['PHP_SELF']);
-    
     exit;
 }
 
@@ -208,6 +222,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['docId'], $_POST['acti
 
                         <div class="flex space-x-3 mt-4">
                             <form class="approval-form" action="" method="POST">
+                                <?php if ($req['status'] === 'pending'): ?>
                                 <input type="hidden" name="docId" value="<?= $req['docId'] ?>">
                                 <input type="hidden" name="action" value="">
                                 
@@ -219,6 +234,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['docId'], $_POST['acti
                                 <button type="button" class="deny-btn bg-red-600 hover:bg-red-700 px-4 py-2 rounded-lg text-sm">
                                     Deny
                                 </button>
+                                <?php else : ?>
+                                    <h3 class="font-semibold text-green-400">To claim at corresponding barangay</h3>
+                                <?php endif ?>
                             </form>
                         </div>
                     </div>

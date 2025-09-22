@@ -225,9 +225,9 @@ function filterActivitySummary($items, $claims, $period = 'today') {
 
         if (!$checkPeriod($timestamp)) continue;
 
-        if ($status === 'pending') {
+        if ($status === 'approved') {
             $counts['unclaimed']++;
-        } elseif ($status === 'approved') {
+        } elseif ($status === 'claimed') {
             $counts['returned']++;
         }
     }
