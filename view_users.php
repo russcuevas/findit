@@ -10,14 +10,43 @@ $projectId = 'findit-96080';
 $apiKey = 'AIzaSyBnRceOZZNPF-qR65gKadBGwlYEADrqi_g';
 
 $userId = $_GET['id'] ?? '';
-
 if (empty($userId)) {
     echo "No user ID provided.";
     exit;
 }
 
-$url = "https://firestore.googleapis.com/v1/projects/$projectId/databases/(default)/documents/users/$userId?key=$apiKey";
+// 🔹 Handle ban action directly here
+if (isset($_GET['ban']) && $_GET['ban'] == 1 && !empty($userId)) {
+    $url = "https://firestore.googleapis.com/v1/projects/$projectId/databases/(default)/documents/users/$userId?updateMask.fieldPaths=isBan&key=$apiKey";
 
+    $updateData = [
+        "fields" => [
+            "isBan" => ["booleanValue" => true]
+        ]
+    ];
+
+    $options = [
+        "http" => [
+            "header"  => "Content-Type: application/json\r\n",
+            "method"  => "PATCH",
+            "content" => json_encode($updateData)
+        ]
+    ];
+
+    $context  = stream_context_create($options);
+    $response = file_get_contents($url, false, $context);
+
+    if ($response === FALSE) {
+        die("Failed to ban user.");
+    } else {
+        // Redirect back with success
+        header("Location: ?id=" . urlencode($userId) . "&status=banned");
+        exit;
+    }
+}
+
+// 🔹 Fetch user data
+$url = "https://firestore.googleapis.com/v1/projects/$projectId/databases/(default)/documents/users/$userId?key=$apiKey";
 $response = file_get_contents($url);
 $data = json_decode($response, true);
 
@@ -45,6 +74,7 @@ function formatDate($timestamp) {
 $wallet = $fields['wallet']['mapValue']['fields'] ?? [];
 $notificationSettings = $fields['notificationSettings']['mapValue']['fields'] ?? [];
 $profileImage = getValue($fields['profileImage'] ?? ['stringValue' => ''], 'stringValue');
+$isBanned = isset($fields['isBan']['booleanValue']) && $fields['isBan']['booleanValue'];
 ?>
 
 
@@ -54,6 +84,7 @@ $profileImage = getValue($fields['profileImage'] ?? ['stringValue' => ''], 'stri
     <meta charset="UTF-8">
     <title>FindIT Dashboard</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
 </head>
 <body class="bg-black text-white p-10">
     <div class="max-w-5xl mx-auto bg-gray-900 rounded-lg shadow-lg p-8 border border-gray-700">
@@ -69,8 +100,19 @@ $profileImage = getValue($fields['profileImage'] ?? ['stringValue' => ''], 'stri
 
                 <div class="mt-4 text-sm">
                     <p><strong>Verified:</strong> <?= $fields['isVerified']['booleanValue'] ? '✅ Yes' : '❌ No' ?></p>
-                    <p><strong>Banned:</strong> <?= (isset($fields['isBan']['booleanValue']) && $fields['isBan']['booleanValue']) ? '🚫 Yes' : '✅ No' ?></p>
+                    <p><strong>Banned:</strong> <?= $isBanned ? '🚫 Yes' : '✅ No' ?></p>
                 </div>
+
+                <!-- Ban Link -->
+                <?php if (!$isBanned): ?>
+                <div class="mt-6 text-center">
+                    <a href="?id=<?= urlencode($userId) ?>&ban=1"
+                       id="banLink"
+                       class="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-full inline-block">
+                       🚫 Ban Account
+                    </a>
+                </div>
+                <?php endif; ?>
             </div>
 
             <!-- RIGHT: Detailed Info -->
@@ -108,9 +150,40 @@ $profileImage = getValue($fields['profileImage'] ?? ['stringValue' => ''], 'stri
         </div>
 
         <div class="mt-8 text-center">
-<a href="<?= htmlspecialchars($_SERVER['HTTP_REFERER'] ?? 'verified_users.php') ?>" class="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-full">⬅ Back to List</a>
+            <a href="verified_users.php" class="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-full">⬅ Back to List</a>
         </div>
     </div>
+
+    <script>
+    // Handle Ban Confirmation
+    document.getElementById("banLink")?.addEventListener("click", function (e) {
+        e.preventDefault(); // stop default action
+        const targetUrl = this.getAttribute("href");
+
+        Swal.fire({
+            title: "Are you sure?",
+            text: "Do you really want to ban this account?",
+            icon: "warning",
+            showCancelButton: true,
+            confirmButtonColor: "#d33",
+            cancelButtonColor: "#3085d6",
+            confirmButtonText: "Yes, ban it!"
+        }).then((result) => {
+            if (result.isConfirmed) {
+                window.location.href = targetUrl;
+            }
+        });
+    });
+
+    // Show success popup after banning
+    <?php if (isset($_GET['status']) && $_GET['status'] === 'banned'): ?>
+    Swal.fire({
+        icon: "success",
+        title: "Banned!",
+        text: "The user has been banned successfully.",
+        confirmButtonText: "OK"
+    });
+    <?php endif; ?>
+    </script>
 </body>
 </html>
-
